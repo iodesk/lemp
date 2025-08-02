@@ -20,3 +20,6 @@ A simple and automated Bash script to install a full web server stack on Ubuntu.
    ```bash
    git clone https://github.com/iodesk/lemp.git
    cd lemp
+2. Direct
+   ```bash
+   bash <(curl -fsSL https://vps.fio.link/install.sh)
