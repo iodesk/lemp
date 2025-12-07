@@ -1,121 +1,269 @@
 #!/bin/bash
+set -euo pipefail
 
-PHP_VERSION="8.3"
-MARIADB_VERSION="11.4"
 LOGFILE="/var/log/uninstaller.log"
-ONDREJ_KEY_ID="0x4F4EA0AAE5267A6C"
+PHP_VERSION="${PHP_VERSION:-8.3}"
+SWAPFILE="${SWAPFILE:-/swapfile}"
 
 mkdir -p "$(dirname "$LOGFILE")"
 touch "$LOGFILE"
 
-log() {
-  echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] $@" | tee -a "$LOGFILE"
+log() { echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOGFILE"; }
+
+confirm() {
+  read -rp "$1 [y/n] (default: $2): " yn
+  yn="${yn:-$2}"
+  [[ "$yn" =~ ^[Yy]$ ]]
 }
 
-prompt_confirm() {
-  while true; do
-    read -rp "$1 [y/n]: " yn
-    case $yn in
-      [Yy]*) return 0 ;;
-      [Nn]*) return 1 ;;
-      *) echo "Please answer y or n." ;;
-    esac
-  done
+safe_rm() { [[ -n "${1:-}" && "$1" != "/" ]] && rm -rf --one-file-system "$1" 2>/dev/null || true; }
+
+has_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+svc_stop_disable() {
+  systemctl stop "$1" 2>/dev/null || true
+  systemctl disable "$1" 2>/dev/null || true
 }
+
+apt_purge_if_installed() {
+  local pkgs=("$@")
+  local installed=()
+  for p in "${pkgs[@]}"; do
+    dpkg -l "$p" 2>/dev/null | awk '/^ii/{print $2}' | grep -qx "$p" && installed+=("$p")
+  done
+  [[ ${#installed[@]} -gt 0 ]] && DEBIAN_FRONTEND=noninteractive apt-get purge -y "${installed[@]}" || true
+}
+
+remove_line() { sed -i "\|$2|d" "$1" 2>/dev/null || true; }
+
+STEP_STATUS=()
+run_step() {
+  log "[RUN] $1"
+  if "$2"; then STEP_STATUS+=("$1: OK"); else STEP_STATUS+=("$1: FAILED"); fi
+}
+
+# ---------------------------------------------------
+# COMPONENTS
+# ---------------------------------------------------
 
 uninstall_nginx() {
-  log ">>> [NGINX] Stopping and uninstalling NGINX..."
-  systemctl stop nginx
-  systemctl disable nginx
-  apt-get purge -y nginx-full libnginx-mod-http-brotli-static libnginx-mod-http-brotli-filter nginx
+  svc_stop_disable nginx
+  apt_purge_if_installed nginx nginx-full nginx-core libnginx-mod-http-brotli-static libnginx-mod-http-brotli-filter
 
-  if prompt_confirm "❓ Remove NGINX configuration in /etc/nginx?"; then
-    rm -rf /etc/nginx
-    log "[✓] Directory /etc/nginx has been removed."
-  else
-    log "[i] NGINX configuration kept."
-  fi
+  safe_rm /etc/nginx
 
-  log ">>> [NGINX] Removing Ondřej PPA and key..."
-  add-apt-repository -r -y "ppa:ondrej/nginx"
-  rm -f /etc/apt/trusted.gpg.d/ondrej-archive.gpg
-
-  log "[✓] NGINX and PPA have been removed."
+  add-apt-repository -r -y ppa:ondrej/nginx 2>/dev/null || true
+  safe_rm /etc/apt/trusted.gpg.d/ondrej-archive.gpg
+  sed -i '/ondrej\/nginx/d' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
 }
 
 uninstall_php() {
-  log ">>> [PHP] Stopping and uninstalling PHP $PHP_VERSION..."
-  systemctl stop php$PHP_VERSION-fpm
-  systemctl disable php$PHP_VERSION-fpm
-  apt-get purge -y "php$PHP_VERSION*" php-common
+  svc_stop_disable php${PHP_VERSION}-fpm
 
-  if prompt_confirm "❓ Remove PHP configuration in /etc/php/$PHP_VERSION?"; then
-    rm -rf /etc/php/$PHP_VERSION
-    log "[✓] Directory /etc/php/$PHP_VERSION has been removed."
-  else
-    log "[i] PHP configuration kept."
-  fi
+  apt_purge_if_installed \
+    php${PHP_VERSION}-fpm php${PHP_VERSION}-cli php${PHP_VERSION}-common \
+    php${PHP_VERSION}-mysql php${PHP_VERSION}-curl php${PHP_VERSION}-mbstring \
+    php${PHP_VERSION}-xml php${PHP_VERSION}-gd php${PHP_VERSION}-zip php${PHP_VERSION}-bcmath php${PHP_VERSION}-redis php-common
 
-  log ">>> [PHP] Removing Ondřej PPA and key..."
-  add-apt-repository -r -y "ppa:ondrej/php"
-  rm -f /etc/apt/trusted.gpg.d/ondrej-php.gpg
+  safe_rm /etc/php/${PHP_VERSION}
 
-  log "[✓] PHP and PPA have been removed."
+  add-apt-repository -r -y ppa:ondrej/php 2>/dev/null || true
+  safe_rm /etc/apt/trusted.gpg.d/ondrej-php.gpg
+  sed -i '/ondrej\/php/d' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
 }
 
 uninstall_mariadb() {
-  log ">>> [MariaDB] Stopping and uninstalling MariaDB $MARIADB_VERSION..."
-  systemctl stop mariadb
-  systemctl disable mariadb
-  apt-get purge -y mariadb-server mariadb-client mariadb-common
+  svc_stop_disable mariadb
+  svc_stop_disable mysql
 
-  if prompt_confirm "❓ Remove all MariaDB data and configuration (including /var/lib/mysql, /etc/mysql, /opt/mysql)?"; then
-    rm -rf /var/lib/mysql /etc/mysql /opt/mysql
-    log "[✓] MariaDB data and configuration have been removed."
-  else
-    log "[i] MariaDB data and configuration kept."
-  fi
+  apt_purge_if_installed mariadb-server mariadb-client mariadb-common galera-* libmariadb* mariadb-*
 
-  if [ -f /root/.mysql_root_password ]; then
-    if prompt_confirm "❓ Remove MariaDB root password file at /root/.mysql_root_password?"; then
-      rm -f /root/.mysql_root_password
-      log "[✓] Root password file has been removed."
-    fi
-  fi
+  safe_rm /var/lib/mysql
+  safe_rm /etc/mysql
+  safe_rm /opt/mysql
+  safe_rm /root/.mysql_root_password
 
-  log ">>> [MariaDB] Removing MariaDB repository and key..."
-  rm -f /etc/apt/sources.list.d/mariadb.list
-  rm -f /usr/share/keyrings/mariadb-keyring.gpg
-
-  log "[✓] MariaDB and its repository have been removed."
+  safe_rm /etc/apt/sources.list.d/mariadb.list
+  safe_rm /usr/share/keyrings/mariadb-keyring.gpg
 }
 
-echo "========== LEMP STACK UNINSTALLER =========="
-echo "Select component to uninstall:"
-echo "1) NGINX"
-echo "2) PHP"
-echo "3) MariaDB"
-echo "4) ALL"
-echo "0) Exit"
-read -rp "Enter your choice [0-4]: " pilihan
+uninstall_phpmyadmin() {
+  safe_rm /usr/share/phpmyadmin
+  safe_rm /etc/nginx/includes/phpmyadmin.conf
+  remove_line /etc/nginx/includes/global.conf 'phpmyadmin'
+}
 
-case "$pilihan" in
-  1) uninstall_nginx ;;
-  2) uninstall_php ;;
-  3) uninstall_mariadb ;;
-  4)
-    uninstall_nginx
-    uninstall_php
-    uninstall_mariadb
-    ;;
-  0)
-    echo "Aborted. Nothing was removed."
-    exit 0
-    ;;
-  *)
-    echo "[!] Invalid selection."
-    exit 1
-    ;;
-esac
+uninstall_fail2ban() {
+  svc_stop_disable fail2ban
+  apt_purge_if_installed fail2ban
+  safe_rm /etc/fail2ban
+}
 
-log ">>> Uninstallation completed."
+uninstall_iptables() {
+  if has_cmd iptables; then
+    iptables -F || true
+    iptables -X || true
+    iptables -Z || true
+    iptables -P INPUT ACCEPT || true
+    iptables -P FORWARD ACCEPT || true
+    iptables -P OUTPUT ACCEPT || true
+  fi
+
+  safe_rm /etc/iptables/rules.v4
+  safe_rm /etc/iptables/rules.v6
+
+  apt_purge_if_installed iptables-persistent netfilter-persistent
+}
+
+uninstall_badbot() {
+  safe_rm /etc/nginx/bots.d
+  safe_rm /etc/nginx/conf.d/globalblacklist.conf
+  remove_line /etc/nginx/includes/global.conf 'bots.d'
+}
+
+uninstall_certbot() {
+  apt_purge_if_installed certbot python3-certbot-nginx
+  safe_rm /etc/letsencrypt
+}
+
+uninstall_redis() {
+  svc_stop_disable redis-server
+  apt_purge_if_installed redis-server redis-tools
+
+  safe_rm /etc/redis
+  safe_rm /var/lib/redis
+  safe_rm /var/log/redis
+}
+
+uninstall_filemanager() {
+log "---"
+}
+
+# ---------------------------------------------------
+# REMOVE ALL HOSTING SITES (USER HOME, VHOST, POOLS)
+# ---------------------------------------------------
+
+uninstall_all_sites() {
+  for d in /home/*; do safe_rm "$d"; done
+
+  find /etc/nginx/sites-available -type f -name "*-vhost.conf" -exec rm -f {} \;
+  find /etc/nginx/sites-enabled   -type f -name "*-vhost.conf" -exec rm -f {} \;
+
+  find /etc/nginx/includes -type f -name "filemanager-*.conf" -exec rm -f {} \;
+
+  find /etc/php/*/fpm/pool.d/ -type f -name "*.conf" -exec rm -f {} \;
+
+  find /etc/logrotate.d -type f -name "*.conf" -exec grep -q "/home/" {} \; -exec rm -f {} \; 2>/dev/null
+
+  find /run/php -type s -name "php${PHP_VERSION}-fpm-*.sock" -exec rm -f {} \;
+
+  safe_rm /usr/local/bin/wp
+
+  safe_rm /etc/ssl/selfsigned
+
+  systemctl restart php${PHP_VERSION}-fpm 2>/dev/null || true
+  has_cmd nginx && nginx -t && systemctl reload nginx || true
+}
+
+uninstall_swap() {
+  if [[ -f "$SWAPFILE" ]]; then
+    swapoff "$SWAPFILE" 2>/dev/null || true
+    safe_rm "$SWAPFILE"
+    sed -i "\|$SWAPFILE none swap|d" /etc/fstab
+  fi
+}
+
+uninstall_dependencies() {
+  apt_purge_if_installed software-properties-common curl dirmngr gnupg \
+    ca-certificates lsb-release zip unzip tar jq
+}
+
+repo_key_cleanup_misc() {
+  sed -i '/ondrej/d;/mariadb/d' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
+  safe_rm /etc/apt/trusted.gpg.d/ondrej-php.gpg
+  safe_rm /etc/apt/trusted.gpg.d/ondrej-archive.gpg
+  safe_rm /usr/share/keyrings/mariadb-keyring.gpg
+}
+
+# ---------------------------------------------------
+# FINAL STEPS
+# ---------------------------------------------------
+
+apt_finish() {
+  apt-get update || true
+  apt-get autoremove -y || true
+  apt-get autoclean -y || true
+}
+
+summary() {
+  log "------------ UNINSTALL SUMMARY ------------"
+  printf "%s\n" "${STEP_STATUS[@]}" | tee -a "$LOGFILE"
+  log "-------------------------------------------"
+}
+
+# ---------------------------------------------------
+# MENU
+# ---------------------------------------------------
+
+menu() {
+  echo "======== UNINSTALLER LEMP FULL CLEAN ========"
+  echo "1) NGINX"
+  echo "2) PHP"
+  echo "3) MariaDB"
+  echo "4) phpMyAdmin"
+  echo "5) Fail2Ban"
+  echo "6) iptables rules"
+  echo "7) Bad Bot Blocker"
+  echo "8) Certbot"
+  echo "9) FileManager"
+  echo "10) Remove ALL sites (/home/*, vhosts, pools)"
+  echo "11) Remove swapfile"
+  echo "12) Repo/GPG cleanup"
+  echo "13) Dependencies cleanup"
+  echo "A) UNINSTALL ALL (everything — full fresh server)"
+  echo "0) Exit"
+  read -rp "Choose: " x
+
+  case "$x" in
+    1) run_step "NGINX" uninstall_nginx ;;
+    2) run_step "PHP" uninstall_php ;;
+    3) run_step "MariaDB" uninstall_mariadb ;;
+    4) run_step "phpMyAdmin" uninstall_phpmyadmin ;;
+    5) run_step "Fail2Ban" uninstall_fail2ban ;;
+    6) run_step "iptables" uninstall_iptables ;;
+    7) run_step "BadBot" uninstall_badbot ;;
+    8) run_step "Certbot" uninstall_certbot ;;
+    9) run_step "FileManager" uninstall_filemanager ;;
+    10) run_step "ALL Sites" uninstall_all_sites ;;
+    11) run_step "Swap" uninstall_swap ;;
+    12) run_step "Repo/Key cleanup" repo_key_cleanup_misc ;;
+    13) run_step "Dependencies" uninstall_dependencies ;;
+    A)
+      run_step "NGINX" uninstall_nginx
+      run_step "PHP" uninstall_php
+      run_step "MariaDB" uninstall_mariadb
+      run_step "phpMyAdmin" uninstall_phpmyadmin
+      run_step "Fail2Ban" uninstall_fail2ban
+      run_step "iptables" uninstall_iptables
+      run_step "BadBot" uninstall_badbot
+      run_step "Certbot" uninstall_certbot
+      run_step "FileManager" uninstall_filemanager
+      run_step "ALL Sites" uninstall_all_sites
+      run_step "Swap" uninstall_swap
+      run_step "Repo/Key cleanup" repo_key_cleanup_misc
+      run_step "Dependencies" uninstall_dependencies
+      ;;
+    0) exit 0 ;;
+    *) echo "Invalid option"; exit 1 ;;
+  esac
+
+  apt_finish
+  summary
+}
+
+if [[ $EUID -ne 0 ]]; then
+  echo "Run as ROOT!"
+  exit 1
+fi
+
+menu
