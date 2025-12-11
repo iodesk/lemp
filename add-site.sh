@@ -112,6 +112,9 @@ echo "$PHP_VERSION" > "$USER_HOME/.php_version"
 mkdir -p "$SITE_DIR" "$USER_HOME/tmp/php_sessions"
 mkdir -p "$SITE_DIR" "$USER_HOME/logs/php"
 chown -R "$USER":"$USER" "$USER_HOME"
+chmod 711 "$USER_HOME"
+chmod 755 "$USER_HOME/$DOMAIN"
+chmod 755 "$USER_HOME/$DOMAIN/public_html"
 
 # ====================
 # CONFIGURE PHP-FPM
@@ -497,6 +500,59 @@ fi
 # ============================
 # Filemanager
 # ============================
+FB_HOST="http://127.0.0.1:2222"
+FB_TOKEN_FILE="/root/.filebrowser_token"
+
+  if [[ ! -f "$FB_TOKEN_FILE" ]]; then
+    log "[FB] ERROR: Token file not found → $FB_TOKEN_FILE"
+    log "[FB] Install script must generate token first. Skipping."
+    return 1
+  fi
+
+  TOKEN=$(cat "$FB_TOKEN_FILE")
+  FB_PASS=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 16)
+
+  log "[FB] Creating Filebrowser user: $USER"
+
+JSON_PAYLOAD=$(cat <<EOF
+{
+  "what": "user",
+  "data": {
+      "username": "$USER",
+      "password": "$FB_PASS",
+      "scope": "$USER",
+      "locale": "en",
+      "viewMode": "list",
+      "singleClick": false,
+      "commands": [],
+      "perm": {
+          "admin": false,
+          "execute": true,
+          "create": true,
+          "rename": true,
+          "modify": true,
+          "delete": true,
+          "share": true,
+          "download": true
+      }
+  }
+}
+EOF
+)
+
+HTTP_CODE=$(curl -s -w "%{http_code}" \
+  -X POST "$FB_HOST/api/users" \
+  -H "X-Auth: $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "$JSON_PAYLOAD")
+
+HTTP_CODE=$(echo "$HTTP_CODE" | tail -n1 | tr -dc '0-9')
+
+  if [[ "$HTTP_CODE" == "201" || "$HTTP_CODE" == "200" ]];  then
+    log "[FB] User added successfully"
+  else
+    log "[FB] ERROR creating user (HTTP $HTTP_CODE)"
+  fi
 
 
 # ====================
@@ -537,7 +593,7 @@ echo "Root Folder:    $SITE_DIR"
 echo "WP Admin URL:   https://$DOMAIN/wp-admin"
 echo "WP Username:    $USER"
 echo "WP Password:    $ADMIN_PASS"
-#echo "File Manager:   https://$DOMAIN/filemanager/"
-#echo "FM Username:    $USER"
-#echo "FM Password:    $FB_PASS"
+echo "File Manager:   $FB_HOST"
+echo "FM Username:    $USER"
+echo "FM Password:    $FB_PASS"
 echo "--------------------------------------------"
