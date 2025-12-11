@@ -103,6 +103,8 @@ install_sysctl() {
 install_nginx() {
   log ">>> [NGINX] Installing NGINX for Ubuntu $OS_VERSION ($CODENAME)..."
   is_supported_os || fail_unsupported_os
+  
+  useradd -r -s /usr/sbin/nologin nginx
 
   log ">>> [NGINX] Adding PPA from Ondřej Surý..."
 
@@ -118,8 +120,11 @@ install_nginx() {
 
   log ">>> [NGINX] Fetching remote NGINX config..."
   mkdir -p /etc/nginx/{sites-enabled,sites-available,conf.d,includes} /var/cache/nginx/cache
+  chown -R nginx:nginx /var/cache/nginx/cache
   touch /etc/nginx/includes/{global.conf,be-proc-global.conf,fe-proc-global.conf}
-  mkdir -p /etc/nginx/ssl
+  mkdir -p /etc/nginx/ssl  
+  mkdir -p /etc/nginx/modules-available
+  mkdir -p /etc/nginx/modules-enabled  
 
   openssl dhparam -dsaparam -out /etc/nginx/ssl/dhparams.pem 2048 >> "$LOGFILE" 2>&1
   chmod 600 /etc/nginx/ssl/dhparams.pem
@@ -137,6 +142,7 @@ install_nginx() {
   mycurl "$REMOTE_CONF_BASE/nginx/mime.types" -o /etc/nginx/mime.types
   touch /etc/nginx/conf.d/botblocker-nginx-settings.conf
   touch /etc/nginx/conf.d/globalblacklist.conf
+  #touch /etc/nginx/modules-available/brotli.conf
   mkdir -p /etc/nginx/bots.d
   touch /etc/nginx/bots.d/{bad-referrer-words.conf,blacklist-ips.conf,blacklist-user-agents.conf,blockbots.conf,custom-bad-referrers.conf,ddos.conf,whitelist-domains.conf,whitelist-ips.conf}
 
@@ -145,6 +151,12 @@ install_nginx() {
   mycurl "$REMOTE_CONF_BASE/nginx/includes/security-rules.conf" -o /etc/nginx/includes/security-rules.conf
   mycurl "$REMOTE_CONF_BASE/nginx/includes/static.conf" -o /etc/nginx/includes/static.conf
   mycurl "$REMOTE_CONF_BASE/nginx/includes/fastcgi.conf" -o /etc/nginx/includes/fastcgi.conf
+
+#cat <<'EOF' > /etc/nginx/modules-available/brotli.conf
+#load_module modules/ngx_http_brotli_filter_module.so;
+#load_module modules/ngx_http_brotli_static_module.so;
+#EOF
+#ln -sf /etc/nginx/modules-available/brotli.conf /etc/nginx/modules-enabled/brotli.conf
 
   log ">>> [NGINX] Restarting..."
   systemctl daemon-reexec
@@ -180,7 +192,6 @@ install_php() {
   mkdir -p /etc/php/$PHP_VERSION/fpm/conf.d
   mycurl "$REMOTE_CONF_BASE/php/$PHP_VERSION/php.ini" -o /etc/php/$PHP_VERSION/fpm/php.ini
   mycurl "$REMOTE_CONF_BASE/php/$PHP_VERSION/pool.d/www.conf" -o /etc/php/$PHP_VERSION/fpm/pool.d/www.conf
-  mycurl "$REMOTE_CONF_BASE/php/$PHP_VERSION/pool.d/global.conf" -o /etc/php/$PHP_VERSION/fpm/pool.d/global.conf
   mycurl "$REMOTE_CONF_BASE/php/$PHP_VERSION/pool.d/custom.conf" -o /etc/php/$PHP_VERSION/fpm/pool.d/custom.example
 
   systemctl restart php$PHP_VERSION-fpm >> "$LOGFILE" 2>&1
@@ -257,9 +268,9 @@ install_mariadb() {
   cat > /etc/systemd/system/mariadb.service.d/limits.conf <<EOF
 [Service]
 LimitNOFILE=65535
-Environment="MYSQLD_OPTS="
-Environment="_WSREP_NEW_CLUSTER="
-Environment="_WSREP_START_POSITION="
+#Environment="MYSQLD_OPTS="
+#Environment="_WSREP_NEW_CLUSTER="
+#Environment="_WSREP_START_POSITION="
 EOF
 
   systemctl daemon-reexec
@@ -327,9 +338,16 @@ install_phpmyadmin() {
   mycurl "$REMOTE_CONF_BASE/nginx/includes/phpmyadmin.conf" \
     -o /etc/nginx/includes/phpmyadmin.conf
 
+  mycurl "$REMOTE_CONF_BASE/nginx/includes/filemanager.conf" \
+    -o /etc/nginx/includes/filemanager.conf    
+
   if ! grep -q "phpmyadmin.conf" /etc/nginx/includes/global.conf 2>/dev/null; then
     echo "include /etc/nginx/includes/phpmyadmin.conf;" >> /etc/nginx/includes/global.conf
   fi
+
+  if ! grep -q "filemanager.conf" /etc/nginx/includes/global.conf 2>/dev/null; then
+    echo "include /etc/nginx/includes/filemanager.conf;" >> /etc/nginx/includes/global.conf
+  fi  
 
   nginx -t >> "$LOGFILE" 2>&1 && systemctl reload nginx >> "$LOGFILE" 2>&1
   log "[✓] phpMyAdmin installed."
@@ -372,24 +390,46 @@ install_iptables() {
   echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
   echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
 
-  DEBIAN_FRONTEND=noninteractive apt-get install -y iptables iptables-persistent >> "$LOGFILE" 2>&1
+  DEBIAN_FRONTEND=noninteractive apt-get install -y iptables iptables-persistent netfilter-persistent >> "$LOGFILE" 2>&1
 
   iptables -F
   iptables -X
   iptables -Z
 
-  iptables -A INPUT -i lo -j ACCEPT
-  iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-  iptables -A INPUT -p tcp --dport 22 -j ACCEPT
-  iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-  iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+    iptables -A INPUT -i lo -j ACCEPT
 
-  iptables -P INPUT DROP
-  iptables -P FORWARD DROP
-  iptables -P OUTPUT ACCEPT  
+    iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+    iptables -A INPUT ! -i lo -s 127.0.0.0/8 -j DROP
+    iptables -A INPUT -s 10.0.0.0/8 -j DROP
+    iptables -A INPUT -s 172.16.0.0/12 -j DROP
+    iptables -A INPUT -s 192.168.0.0/16 -j DROP
+
+    iptables -A INPUT -p tcp --dport 22 -m state --state NEW \
+    -m limit --limit 8/min --limit-burst 20 -j ACCEPT
+
+    iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+    iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+
+    iptables -A INPUT -m conntrack --ctstate INVALID -j DROP
+    iptables -A INPUT -p tcp --tcp-flags ALL ALL -j DROP
+    iptables -A INPUT -p tcp --tcp-flags ALL NONE -j DROP
+    iptables -A INPUT -f -j DROP
+    iptables -A INPUT -p tcp --syn -m limit --limit 50/s --limit-burst 200 -j ACCEPT
+
+    iptables -A INPUT -p icmp --icmp-type echo-request -m limit \
+    --limit 30/sec --limit-burst 30 -j ACCEPT
+    iptables -A INPUT -p icmp --icmp-type destination-unreachable -j ACCEPT
+    iptables -A INPUT -p icmp --icmp-type time-exceeded -j ACCEPT
+    iptables -A INPUT -p icmp --icmp-type parameter-problem -j ACCEPT
+
+    iptables -P INPUT DROP
+    iptables -P FORWARD DROP
+    iptables -P OUTPUT ACCEPT
 
   iptables-save > /etc/iptables/rules.v4
   ip6tables-save > /etc/iptables/rules.v6
+  netfilter-persistent save
 
   log "[✓] iptables installed."
 }
@@ -505,15 +545,117 @@ install_waf_auto_update() {
   else
     log "[i] Cronjob already exists, skipping"
   fi
+
+  log ">>> [WAF] Update WAF..."
+  bash /usr/local/bin/waf-update.sh
 }
 
 # ========================================
 # INSTALL FILEMANAGER
 # ========================================
 install_filemanager() {
-    log "[i]"
+  log "[FB] Installing Filebrowser..."
+
+  # install binary
+  if ! command -v filebrowser >/dev/null 2>&1; then
+    curl -fsSL https://raw.githubusercontent.com/filebrowser/get/master/get.sh | bash
+    log "[FB] Filebrowser binary installed."
+  else
+    log "[FB] Filebrowser already installed, skipping."
+  fi
+
+  systemctl stop filebrowser 2>/dev/null || true
+
+  mkdir -p /etc/filebrowser
+  mkdir -p /var/lib/filebrowser
+  chown -R root:root /var/lib/filebrowser
+
+  FB_ADMIN_USER="admin"
+  FB_ADMIN_PASS=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 16)
+
+  # save admin
+  cat > /root/.filebrowser_admin <<EOF
+{
+  "username": "admin",
+  "password": "$FB_ADMIN_PASS"
+}
+EOF
+  chmod 600 /root/.filebrowser_admin
+  log "[FB] Admin credentials saved → /root/.filebrowser_admin"
+
+  # config
+  cat > /etc/filebrowser/config.json <<EOF
+{
+  "port": 2222,
+  "address": "127.0.0.1",
+  "log": "stdout",
+  "database": "/var/lib/filebrowser/database.db",
+  "root": "/home",
+  "authMethod": "default",
+  "database-wal": true,
+  "lockTimeout": 30
+}
+EOF
+
+  log "[FB] Config written → /etc/filebrowser/config.json"
+
+  # fresh DB
+  rm -f /var/lib/filebrowser/database.db
+
+  filebrowser config init \
+      --config /etc/filebrowser/config.json \
+      --database /var/lib/filebrowser/database.db
+
+  filebrowser --config /etc/filebrowser/config.json \
+  users add "$FB_ADMIN_USER" "$FB_ADMIN_PASS" --perm.admin=true \
+  --database /var/lib/filebrowser/database.db
+
+  cat > /etc/systemd/system/filebrowser.service <<EOF
+[Unit]
+Description=Filebrowser File Manager
+After=network.target
+
+[Service]
+User=root
+ExecStart=/usr/local/bin/filebrowser --config /etc/filebrowser/config.json --database /var/lib/filebrowser/database.db --baseURL /fm
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable filebrowser
+  systemctl restart filebrowser
+
+  sleep 1
+  log "[FB] Waiting for Filebrowser to boot..."
+
+  # request token
+  TOKEN=$(curl -s -X POST http://127.0.0.1:2222/api/login \
+    -H "Content-Type: application/json" \
+    -d "{\"username\":\"$FB_ADMIN_USER\",\"password\":\"$FB_ADMIN_PASS\"}")
+
+  if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then
+    log "[FB] ERROR: Failed to acquire token!"
+    return 1
+  fi
+
+  echo "$TOKEN" > /root/.filebrowser_token
+  chmod 600 /root/.filebrowser_token
+
+  log "[FB] Token saved → /root/.filebrowser_token"
 }
 
+# ========================================
+# INSTALL WPCLI
+# ========================================
+install_wpcli() {
+    log "Downloading WP-CLI..."
+    curl -s -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+    chmod +x wp-cli.phar
+    mv wp-cli.phar /usr/local/bin/wp
+}
 
 summary_installation() {
   echo ""
@@ -567,10 +709,18 @@ summary_installation() {
 
   # phpMyAdmin
   if [[ -d /usr/share/phpmyadmin ]]; then
-    echo "[phpMyAdmin]: Installed → /pma"
+    echo "[phpMyAdmin]: Login Path→ example.com/pma"
   else
     echo "[phpMyAdmin]: NOT INSTALLED"
   fi
+
+  # File Manager
+  fm_state=$(systemctl is-active filebrowser.service)
+  echo "[MariaDB]   : $mariadb_ver | status: $fm_state"  
+  log "[FB] API token saved → /root/.filebrowser_token"
+  log "[FB] Login Path→ example.com/fm"
+  log "[FB] Admin : $FB_ADMIN_USER"
+  log "[FB] Password : $FB_ADMIN_PASS"    
 
   # Fail2Ban
   if command -v fail2ban-server >/dev/null; then
@@ -616,4 +766,5 @@ install_ngxbadbot
 install_redis
 install_waf_auto_update
 install_filemanager
+install_wpcli
 summary_installation
