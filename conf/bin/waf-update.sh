@@ -10,11 +10,26 @@ echo "[+] Checking for WAF updates from MitchellKrogza..."
 TMPDIR=$(mktemp -d)
 cd "$TMPDIR"
 
-# Download blacklist (latest)
-wget -q https://raw.githubusercontent.com/mitchellkrogza/nginx-ultimate-bad-bot-blocker/master/conf.d/globalblacklist.conf -O globalblacklist.conf
-wget -q https://raw.githubusercontent.com/mitchellkrogza/nginx-ultimate-bad-bot-blocker/master/bots.d/blockbots.conf -O blockbots.conf
-wget -q https://raw.githubusercontent.com/mitchellkrogza/nginx-ultimate-bad-bot-blocker/master/bots.d/ddos.conf -O ddos.conf
-wget -q https://raw.githubusercontent.com/mitchellkrogza/nginx-ultimate-bad-bot-blocker/master/bots.d/blacklist-user-agents.conf -O blacklist-user-agents.conf
+# Files to download
+BASE_URL="https://raw.githubusercontent.com/mitchellkrogza/nginx-ultimate-bad-bot-blocker/master"
+FILES=(
+    "conf.d/globalblacklist.conf"
+    "bots.d/blockbots.conf"
+    "bots.d/ddos.conf"
+    "bots.d/blacklist-user-agents.conf"
+)
+
+for file_path in "${FILES[@]}"; do
+    file_name=$(basename "$file_path")
+    echo "[+] Downloading $file_name..."
+    wget -q "$BASE_URL/$file_path" -O "$file_name"
+    
+    if [[ ! -s "$file_name" ]]; then
+        echo "[x] ERROR: $file_name is empty or download failed! Aborting."
+        rm -rf "$TMPDIR"
+        exit 1
+    fi
+done
 
 echo "[+] Applying return 403 fix..."
 sed -i 's/return 444;/return 403;/g' ./*.conf

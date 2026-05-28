@@ -12,44 +12,55 @@ character-set-server = utf8mb4
 collation-server  = utf8mb4_general_ci
 init-connect = 'SET NAMES utf8mb4'
 
-aria_pagecache_buffer_size = 128M
+aria_pagecache_buffer_size = 64M
 
 # InnoDB Settings
 innodb_file_per_table = 1
-innodb_buffer_pool_size = 1340M
-innodb_buffer_pool_instances = 4
-innodb_log_file_size = 384M
+
+# Balanced for 4GB RAM VPS
+innodb_buffer_pool_size = 768M
+innodb_buffer_pool_instances = 1
+
+innodb_log_file_size = 256M
 innodb_log_buffer_size = 16M
+
 innodb_flush_log_at_trx_commit = 2
 innodb_flush_method = O_DIRECT
+
 innodb_stats_on_metadata = OFF
-#innodb_thread_concurrency = 6
+
+#innodb_thread_concurrency = 4
 
 # Cache and Buffers
-tmp_table_size = 64M
-max_heap_table_size = 64M
-table_open_cache = 2048
-table_definition_cache = 2048
-thread_cache_size = 50
+tmp_table_size = 32M
+max_heap_table_size = 32M
+
+table_open_cache = 1024
+table_definition_cache = 1024
+
+thread_cache_size = 16
 
 # Connection Limits
-max_connections = 240
-#skip-name-resolve=ON
+max_connections = 30
 
-# Per-Thread Buffers (sesuaikan untuk mengontrol pemakaian memori)
-sort_buffer_size = 2M
-join_buffer_size = 2M
-read_rnd_buffer_size = 4M
-read_buffer_size = 1M
-bulk_insert_buffer_size = 64M
+skip-name-resolve = ON
 
-# Key Buffer for MyISAM (jika masih ada table MyISAM)
-key_buffer_size = 128M
-myisam_sort_buffer_size = 128M
+# Per-Thread Buffers
+sort_buffer_size = 1M
+join_buffer_size = 1M
+read_rnd_buffer_size = 1M
+read_buffer_size = 512K
+
+# Bulk ops (keep reasonable)
+bulk_insert_buffer_size = 16M
+
+# Key Buffer for MyISAM
+key_buffer_size = 64M
+myisam_sort_buffer_size = 64M
 
 max_allowed_packet = 64M
 
-# Query Cache - matikan untuk performa lebih baik di versi modern
+# Query Cache
 query_cache_type = 0
 query_cache_size = 0
 
