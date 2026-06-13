@@ -4,6 +4,12 @@ Lightweight LEMP stack installer & site manager for Ubuntu 24.04.
 
 ![Traffic Oveview](screenshot/ss-keitaro-paid-traffic.png)
 
+Screenshot from a Keitaro dashboard running on this LEMP stack for 6 months on a VPS with: 
+- 4 cores AMD EPYC 4584PX (up to 5.7 GHz),
+- 8 GB DDR5
+- 120 GB NVMe.
+- 10 Gbps network 
+
 ## Stack
 
 | Component | Version |
