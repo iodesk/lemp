@@ -1,0 +1,324 @@
+#!/bin/bash
+set -e
+
+FSS_BASE="/usr/local/fss"
+FSS_DATA="/opt/fss"
+FSS_SECRETS="$FSS_DATA/data"
+LOGFILE="/var/log/fss/uninstaller.log"
+PHP_VERSION="${PHP_VERSION:-8.4}"
+SWAPFILE="${SWAPFILE:-/swapfile}"
+
+mkdir -p /var/log/fss
+: > "$LOGFILE"
+
+log() { echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOGFILE"; }
+logv() { echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOGFILE"; }
+
+safe_rm() { [[ -n "${1:-}" && "$1" != "/" ]] && rm -rf --one-file-system "$1" 2>/dev/null || true; }
+has_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+svc_stop_disable() {
+  systemctl stop "$1" >> "$LOGFILE" 2>&1 || true
+  systemctl disable "$1" >> "$LOGFILE" 2>&1 || true
+}
+
+apt_purge_if_installed() {
+  local pkgs=("$@")
+  local installed=()
+  for p in "${pkgs[@]}"; do
+    dpkg -l "$p" 2>/dev/null | awk '/^ii/{print $2}' | grep -qx "$p" && installed+=("$p")
+  done
+  if [[ ${#installed[@]} -gt 0 ]]; then
+    DEBIAN_FRONTEND=noninteractive apt-get purge -y "${installed[@]}" >> "$LOGFILE" 2>&1
+  fi
+}
+
+remove_line() { sed -i "\|$2|d" "$1" 2>/dev/null || true; }
+
+STEP_STATUS=()
+run_step() {
+  log "[RUN] $1"
+  if "$2"; then STEP_STATUS+=("$1: OK"); else STEP_STATUS+=("$1: FAILED"); fi
+}
+
+uninstall_nginx() {
+  svc_stop_disable nginx
+  apt_purge_if_installed nginx nginx-full nginx-core nginx-common \
+    libnginx-mod-http-brotli-static libnginx-mod-http-brotli-filter
+  safe_rm /etc/nginx
+  safe_rm /var/cache/nginx
+  safe_rm /var/log/nginx
+  safe_rm /etc/apt/sources.list.d/nginx.list
+  safe_rm /usr/share/keyrings/nginx-archive-keyring.gpg
+  safe_rm /etc/apt/preferences.d/99-nginx
+  userdel nginx 2>/dev/null || true
+  groupdel nginx 2>/dev/null || true
+}
+
+uninstall_php() {
+  svc_stop_disable php${PHP_VERSION}-fpm
+  apt_purge_if_installed \
+    php${PHP_VERSION} php${PHP_VERSION}-fpm php${PHP_VERSION}-cli php${PHP_VERSION}-common \
+    php${PHP_VERSION}-mysql php${PHP_VERSION}-curl php${PHP_VERSION}-mbstring \
+    php${PHP_VERSION}-xml php${PHP_VERSION}-gd php${PHP_VERSION}-zip \
+    php${PHP_VERSION}-bcmath php${PHP_VERSION}-redis php${PHP_VERSION}-opcache \
+    php${PHP_VERSION}-intl php-common
+  safe_rm /etc/php/${PHP_VERSION}
+  safe_rm /etc/php
+  safe_rm /run/php
+  add-apt-repository -r -y ppa:ondrej/php 2>/dev/null || true
+  safe_rm /etc/apt/trusted.gpg.d/ondrej-php.gpg
+}
+
+uninstall_mariadb() {
+  svc_stop_disable mariadb
+  svc_stop_disable mysql
+  apt_purge_if_installed mariadb-server mariadb-client mariadb-common galera-* libmariadb* mariadb-*
+  safe_rm /var/lib/mysql
+  safe_rm /etc/mysql
+  safe_rm /opt/mysql
+  safe_rm "$FSS_SECRETS/.mysql_root_password"
+  safe_rm /root/.mysql_root_password
+  safe_rm /etc/apt/sources.list.d/mariadb.list
+  safe_rm /usr/share/keyrings/mariadb-keyring.gpg
+}
+
+uninstall_phpmyadmin() {
+  safe_rm /usr/share/phpmyadmin
+  safe_rm /tmp/phpmyadmin
+  safe_rm /etc/nginx/includes/phpmyadmin.conf
+  safe_rm /etc/nginx/includes/filemanager.conf
+  remove_line /etc/nginx/includes/global.conf 'phpmyadmin'
+  remove_line /etc/nginx/includes/global.conf 'filemanager'
+}
+
+uninstall_fail2ban() {
+  svc_stop_disable fail2ban
+  apt_purge_if_installed fail2ban
+  safe_rm /etc/fail2ban
+}
+
+uninstall_iptables() {
+  if has_cmd iptables; then
+    iptables -F || true; iptables -X || true; iptables -Z || true
+    iptables -P INPUT ACCEPT || true
+    iptables -P FORWARD ACCEPT || true
+    iptables -P OUTPUT ACCEPT || true
+  fi
+  if has_cmd ip6tables; then
+    ip6tables -F || true; ip6tables -X || true; ip6tables -Z || true
+    ip6tables -P INPUT ACCEPT || true
+    ip6tables -P FORWARD ACCEPT || true
+    ip6tables -P OUTPUT ACCEPT || true
+  fi
+  safe_rm /etc/iptables/rules.v4
+  safe_rm /etc/iptables/rules.v6
+  apt_purge_if_installed iptables-persistent netfilter-persistent
+}
+
+uninstall_badbot() {
+  safe_rm /etc/nginx/bots.d
+  safe_rm /etc/nginx/conf.d/globalblacklist.conf
+  remove_line /etc/nginx/includes/global.conf 'bots.d'
+}
+
+uninstall_certbot() {
+  apt_purge_if_installed certbot python3-certbot-nginx
+  safe_rm /etc/letsencrypt
+}
+
+uninstall_redis() {
+  svc_stop_disable redis-server
+  apt_purge_if_installed redis-server redis-tools
+  safe_rm /etc/redis
+  safe_rm /var/lib/redis
+  safe_rm /var/log/redis
+  safe_rm /var/run/redis
+}
+
+uninstall_filemanager() {
+  log "[FB] Uninstalling Filebrowser..."
+  if systemctl is-active --quiet filebrowser; then
+    systemctl stop filebrowser
+  fi
+  systemctl disable filebrowser 2>/dev/null || true
+  rm -f /etc/systemd/system/filebrowser.service
+  systemctl daemon-reload
+  safe_rm /etc/filebrowser
+  safe_rm /var/lib/filebrowser
+  rm -f /usr/local/bin/filebrowser
+  safe_rm "$FSS_SECRETS/.filebrowser_token"
+  safe_rm "$FSS_SECRETS/.filebrowser_admin"
+  rm -f /root/.filebrowser_token
+  rm -f /root/.filebrowser_admin
+  log "[FB] Filebrowser fully removed."
+}
+
+uninstall_all_sites() {
+  log "Removing managed hosting sites..."
+
+  for d in /home/*; do
+    [[ ! -d "$d" ]] && continue
+    local user
+    user=$(basename "$d")
+    if [[ -f "$d/.php_version" ]]; then
+      log "Removing managed user & files: $user"
+      pkill -u "$user" 2>/dev/null || true
+      userdel -r "$user" 2>/dev/null || rm -rf "$d"
+    fi
+  done
+
+  find /etc/nginx/sites-available -type f -name "*.conf" ! -name "00-default.conf" -exec rm -f {} \; 2>/dev/null || true
+  find /etc/nginx/sites-enabled -type f -name "*.conf" ! -name "00-default.conf" -exec rm -f {} \; 2>/dev/null || true
+  find /etc/php/*/fpm/pool.d/ -type f -name "*.conf" ! -name "www.conf" -exec rm -f {} \; 2>/dev/null || true
+  find /etc/logrotate.d -type f -exec grep -l "/home/" {} \; 2>/dev/null | xargs rm -f 2>/dev/null || true
+
+  safe_rm /usr/local/bin/wp
+  safe_rm /etc/ssl/selfsigned
+
+  systemctl restart php${PHP_VERSION}-fpm 2>/dev/null || true
+  has_cmd nginx && nginx -t && systemctl reload nginx || true
+}
+
+uninstall_swap() {
+  if [[ -f "$SWAPFILE" ]]; then
+    swapoff "$SWAPFILE" 2>/dev/null || true
+    safe_rm "$SWAPFILE"
+    sed -i "\|$SWAPFILE none swap|d" /etc/fstab
+  fi
+}
+
+uninstall_sysctl() {
+  safe_rm /etc/sysctl.d/99-tuning.conf
+  safe_rm /etc/sysctl.d/99-bbr-fq.conf
+  sysctl --system >/dev/null 2>&1 || true
+  log "[✓] Sysctl tuning & BBR config removed."
+}
+
+uninstall_waf_cron() {
+  safe_rm /usr/local/bin/waf-update.sh
+  crontab -l 2>/dev/null | grep -v "waf-update.sh" | crontab - 2>/dev/null || true
+  log "[✓] WAF auto-update cron removed."
+}
+
+uninstall_wpcli() {
+  safe_rm /usr/local/bin/wp
+  log "[✓] WP-CLI removed."
+}
+
+uninstall_fss() {
+  log "Removing FSS installation..."
+  rm -f /usr/local/bin/fss-site
+  rm -f /usr/local/bin/fss-install
+  rm -f /usr/local/bin/fss-uninstall
+  safe_rm "$FSS_BASE"
+  safe_rm "$FSS_DATA"
+  log "[✓] FSS fully removed."
+  log "[i] Log dir /var/log/fss/ kept for reference. Remove manually if needed."
+}
+
+uninstall_dependencies() {
+  apt_purge_if_installed software-properties-common curl dirmngr gnupg \
+    ca-certificates lsb-release zip unzip tar jq
+}
+
+repo_key_cleanup_misc() {
+  safe_rm /etc/apt/trusted.gpg.d/ondrej-php.gpg
+  safe_rm /usr/share/keyrings/mariadb-keyring.gpg
+  safe_rm /usr/share/keyrings/nginx-archive-keyring.gpg
+  safe_rm /etc/apt/sources.list.d/nginx.list
+  safe_rm /etc/apt/sources.list.d/mariadb.list
+  safe_rm /etc/apt/preferences.d/99-nginx
+  safe_rm /etc/systemd/system/mariadb.service.d
+  log "[✓] All repo keys and preferences cleaned."
+}
+
+apt_finish() {
+  apt-get update >> "$LOGFILE" 2>&1 || true
+  apt-get autoremove -y >> "$LOGFILE" 2>&1 || true
+  apt-get autoclean -y >> "$LOGFILE" 2>&1 || true
+}
+
+summary() {
+  log "------------ UNINSTALL SUMMARY ------------"
+  printf "%s\n" "${STEP_STATUS[@]}" | tee -a "$LOGFILE"
+  log "-------------------------------------------"
+}
+
+menu() {
+  echo "======== FSS UNINSTALLER ========"
+  echo "1) NGINX"
+  echo "2) PHP"
+  echo "3) MariaDB"
+  echo "4) phpMyAdmin"
+  echo "5) Fail2Ban"
+  echo "6) iptables rules"
+  echo "7) Bad Bot Blocker"
+  echo "8) Certbot"
+  echo "9) FileManager"
+  echo "10) Redis"
+  echo "11) Remove ALL sites (/home/*, vhosts, pools)"
+  echo "12) Remove swapfile"
+  echo "13) Sysctl & BBR tuning"
+  echo "14) WAF auto-update cron"
+  echo "15) WP-CLI"
+  echo "16) Repo/GPG cleanup"
+  echo "17) Dependencies cleanup"
+  echo "18) Remove FSS itself"
+  echo "A) UNINSTALL ALL (everything, full fresh server)"
+  echo "0) Exit"
+  read -rp "Choose: " x
+
+  case "$x" in
+    1) run_step "NGINX" uninstall_nginx ;;
+    2) run_step "PHP" uninstall_php ;;
+    3) run_step "MariaDB" uninstall_mariadb ;;
+    4) run_step "phpMyAdmin" uninstall_phpmyadmin ;;
+    5) run_step "Fail2Ban" uninstall_fail2ban ;;
+    6) run_step "iptables" uninstall_iptables ;;
+    7) run_step "BadBot" uninstall_badbot ;;
+    8) run_step "Certbot" uninstall_certbot ;;
+    9) run_step "FileManager" uninstall_filemanager ;;
+    10) run_step "Redis" uninstall_redis ;;
+    11) run_step "ALL Sites" uninstall_all_sites ;;
+    12) run_step "Swap" uninstall_swap ;;
+    13) run_step "Sysctl/BBR" uninstall_sysctl ;;
+    14) run_step "WAF Cron" uninstall_waf_cron ;;
+    15) run_step "WP-CLI" uninstall_wpcli ;;
+    16) run_step "Repo/Key cleanup" repo_key_cleanup_misc ;;
+    17) run_step "Dependencies" uninstall_dependencies ;;
+    18) run_step "FSS" uninstall_fss ;;
+    A)
+      run_step "ALL Sites" uninstall_all_sites
+      run_step "phpMyAdmin" uninstall_phpmyadmin
+      run_step "FileManager" uninstall_filemanager
+      run_step "BadBot" uninstall_badbot
+      run_step "Fail2Ban" uninstall_fail2ban
+      run_step "Certbot" uninstall_certbot
+      run_step "WAF Cron" uninstall_waf_cron
+      run_step "WP-CLI" uninstall_wpcli
+      run_step "NGINX" uninstall_nginx
+      run_step "PHP" uninstall_php
+      run_step "MariaDB" uninstall_mariadb
+      run_step "Redis" uninstall_redis
+      run_step "iptables" uninstall_iptables
+      run_step "Sysctl/BBR" uninstall_sysctl
+      run_step "Swap" uninstall_swap
+      run_step "Repo/Key cleanup" repo_key_cleanup_misc
+      run_step "Dependencies" uninstall_dependencies
+      run_step "FSS" uninstall_fss
+      ;;
+    0) exit 0 ;;
+    *) echo "Invalid option"; exit 1 ;;
+  esac
+
+  apt_finish
+  summary
+}
+
+if [[ $EUID -ne 0 ]]; then
+  echo "Run as ROOT!"
+  exit 1
+fi
+
+menu

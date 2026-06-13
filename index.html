@@ -1,0 +1,287 @@
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FSS [F10 Simple Stack]</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" />
+    <style>
+        .card,
+        .card-header {
+            background-color: #161b22
+        }
+
+        h1,
+        ul ul {
+            margin-bottom: .75rem
+        }
+
+        body,
+        h1,
+        h3,
+        strong {
+            color: #c9d1d9
+        }
+
+        .card-header,
+        h1,
+        h3,
+        strong {
+            font-weight: 600
+        }
+
+        ol,
+        ul {
+            padding-left: 1.25rem;
+            margin-bottom: 1rem
+        }
+
+        hr,
+        ol,
+        p,
+        pre,
+        ul {
+            margin-bottom: 1rem
+        }
+
+        body {
+            background-color: #0d1117;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            margin: 1rem
+        }
+
+        .card {
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 1rem 1.5rem 1.5rem
+        }
+
+        .card-header {
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+            padding: .75rem 1.5rem;
+            border-radius: 6px 6px 0 0;
+            color: #8b949e;
+            font-size: 14px
+        }
+
+        .card-header .active-tab {
+            color: #f78166;
+            border-bottom: 2px solid #f78166;
+            padding-bottom: .25rem;
+            font-weight: 700
+        }
+
+        ol,
+        p,
+        ul {
+            color: #8b949e
+        }
+
+        h1 {
+            font-size: 24px;
+            margin-top: .5rem
+        }
+
+        hr {
+            border-color: #30363d;
+            margin-top: 0
+        }
+
+        p {
+            font-size: 14px
+        }
+
+        h3 {
+            font-size: 18px;
+            margin-bottom: .5rem
+        }
+
+        li {
+            font-size: 14px;
+            margin-bottom: .25rem
+        }
+
+        ul ul {
+            margin-top: .25rem
+        }
+
+        code,
+        pre {
+            background-color: #0d1117;
+            font-family: SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace;
+            font-size: 13px;
+            color: #8b949e
+        }
+
+        code {
+            padding: .2em .4em;
+            border-radius: 6px
+        }
+
+        pre {
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: .75rem 1rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+            position: relative
+        }
+
+        pre .copy-icon {
+            position: absolute;
+            right: .5rem;
+            top: .5rem;
+            color: #8b949e;
+            cursor: pointer
+        }
+
+        pre .copy-icon.copied {
+            color: #3fb950
+        }
+
+        .badge-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: .4rem;
+            margin-bottom: 1rem
+        }
+
+        .badge-list span {
+            background-color: #21262d;
+            border: 1px solid #30363d;
+            border-radius: 4px;
+            padding: .15rem .5rem;
+            font-size: 12px;
+            color: #8b949e
+        }
+    </style>
+</head>
+
+<body>
+    <div class="card">
+        <div class="card-header">
+            <i class="fas fa-book"></i>
+            <span class="active-tab">README</span>
+        </div>
+
+        <h1>FSS — F10 Simple Stack</h1>
+        <hr />
+        <p>
+            LEMP stack installer & site manager for Ubuntu 24.04.
+            Fully local, modular, single CLI entry point.
+        </p>
+
+        <h3>Stack</h3>
+        <hr />
+        <div class="badge-list">
+            <span>NGINX 1.30.1 (HTTP/3)</span>
+            <span>PHP 8.4 FPM</span>
+            <span>MariaDB 11.4</span>
+            <span>Redis (Socket)</span>
+            <span>phpMyAdmin</span>
+            <span>Filebrowser (Fork build: add features compress, permission OS, chown UI)</span>
+            <span>WP-CLI</span>
+            <span>ionCube</span>
+            <span>Fail2Ban</span>
+            <span>iptables (v4+v6)</span>
+            <span>Bad Bot Blocker</span>
+            <span>TCP BBR</span>
+            <span>Let's Encrypt</span>
+        </div>
+
+        <h3>Get Started</h3>
+        <hr />
+        <pre><span>wget https://vps.fio.link/fss-bin.zip</span><i class="fas fa-copy copy-icon"></i></pre>
+        <pre><span>unzip fss-bin.zip -d fss && cd fss</span><i class="fas fa-copy copy-icon"></i></pre>
+        <pre><span>bash fss-install</span><i class="fas fa-copy copy-icon"></i></pre>
+
+        <h3>Add Site</h3>
+        <hr />
+        <p>SSL: <code>le</code> (Let's Encrypt) · <code>self</code> (Self-signed) · <code>none</code> (HTTP only)</p>
+        <p>Mode: <code>--mode multi</code> (default, 1 user per site) · <code>--mode single</code> (1 user, many sites)</p>
+
+        <p><strong>WordPress</strong></p>
+        <pre><span>fss-site add app example.com -php 8.4 -app wordpress -ssl le</span><i class="fas fa-copy copy-icon"></i></pre>
+
+        <p><strong>General PHP App</strong></p>
+        <pre><span>fss-site add app example.com -php 8.4 -app general -ssl le</span><i class="fas fa-copy copy-icon"></i></pre>
+
+        <p><strong>Static Site</strong></p>
+        <pre><span>fss-site add static example.com -ssl le</span><i class="fas fa-copy copy-icon"></i></pre>
+
+        <p><strong>Reverse Proxy — Single Backend</strong></p>
+        <pre><span>fss-site add proxy example.com -backends '127.0.0.1:3000' -ssl le</span><i class="fas fa-copy copy-icon"></i></pre>
+
+        <p><strong>Reverse Proxy — Load Balancer</strong></p>
+        <pre><span>fss-site add proxy example.com -backends '127.0.0.1:3000,127.0.0.1:3001' -ssl le</span><i class="fas fa-copy copy-icon"></i></pre>
+
+        <p><strong>Reverse Proxy — Path-based Routing</strong></p>
+        <pre><span>fss-site add proxy example.com -routes '/api=127.0.0.1:3000,/app=127.0.0.1:4000' -ssl le</span><i class="fas fa-copy copy-icon"></i></pre>
+
+        <h3>Remove Site</h3>
+        <hr />
+        <pre><span>fss-site rm app example.com</span><i class="fas fa-copy copy-icon"></i></pre>
+        <pre><span>fss-site rm example.com</span><i class="fas fa-copy copy-icon"></i></pre>
+        <p>Auto-detects type. Smart removal: keeps user if other domains exist.</p>
+
+        <h3>Uninstall</h3>
+        <hr />
+        <pre><span>fss-uninstall</span><i class="fas fa-copy copy-icon"></i></pre>
+
+        <h3>FSS Paths</h3>
+        <hr />
+        <ul>
+            <li>Binaries: <code>/usr/local/fss/</code></li>
+            <li>Configs: <code>/opt/fss/conf/</code></li>
+            <li>Secrets: <code>/opt/fss/data/</code></li>
+            <li>Logs: <code>/var/log/fss/</code></li>
+        </ul>
+
+        <h3>Post-Install</h3>
+        <hr />
+        <ul>
+            <li>phpMyAdmin: <code>https://your-ip/pma</code></li>
+            <li>Filebrowser: <code>https://your-ip/fm</code></li>
+            <li>MariaDB root: <code>/opt/fss/data/.mysql_root_password</code></li>
+            <li>Filebrowser admin: <code>/opt/fss/data/.filebrowser_admin</code></li>
+            <li>Site credentials: <code>/home/&lt;user&gt;/.summary-domain.md</code></li>
+        </ul>
+
+        <h3>Site Directory</h3>
+        <hr />
+        <pre><span>/home/&lt;user&gt;/
+├── domain.com/
+│   └── public_html/
+├── logs/
+│   └── domain.com/
+│       ├── nginx/
+│       └── php/
+├── tmp/php_sessions/
+└── .summary-domain.com.md</span><i class="fas fa-copy copy-icon"></i></pre>
+
+    </div>
+</body>
+<script>
+    document.querySelectorAll('.copy-icon').forEach(icon => {
+        icon.addEventListener('click', () => {
+            const pre = icon.parentElement;
+            const span = pre.querySelector('span');
+            const text = span ? span.innerText : pre.innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                icon.classList.add('copied');
+                setTimeout(() => icon.classList.remove('copied'), 1500);
+            });
+        });
+    });
+</script>
+
+</html>

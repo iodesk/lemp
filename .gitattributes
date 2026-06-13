@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.sh text eol=lf
+fss-site text eol=lf
+fss-install text eol=lf
+fss-uninstall text eol=lf
+*.conf text eol=lf
+*.ini text eol=lf
+*.cnf text eol=lf

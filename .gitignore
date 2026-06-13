@@ -1,0 +1,47 @@
+# Environment — real config, never commit
+.env
+.env.local
+.env.*.local
+
+# Allow examples
+!.env.example
+
+
+# Dependency vendor
+tools/
+fsscache/
+docker/
+
+# Node (if any tooling at root level)
+node_modules/
+
+# Certs & keys
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+data/cert-cache/
+
+# Logs
+logs/
+*.log
+
+# Archives / backups
+*.zip
+*.tar.gz
+*.bak
+*.BAK
+
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~

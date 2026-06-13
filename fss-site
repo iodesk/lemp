@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -e
+
+export FSS_BASE="/usr/local/fss"
+export FSS_LIB="$FSS_BASE/lib"
+
+ACTION="${1:-}"
+TYPE="${2:-}"
+
+if [[ -z "$ACTION" ]]; then
+  echo "Usage: fss-site <add|rm> <app|static|proxy> <domain> [options]"
+  echo ""
+  echo "Examples:"
+  echo "  fss-site add app example.com -php 8.3 -ssl le -app wordpress"
+  echo "  fss-site add static example.com -ssl le"
+  echo "  fss-site add proxy example.com -backends '127.0.0.1:8080' -ssl le"
+  echo "  fss-site rm app example.com"
+  echo "  fss-site rm static example.com"
+  echo "  fss-site rm proxy example.com"
+  exit 1
+fi
+
+if [[ "$ACTION" != "add" && "$ACTION" != "rm" ]]; then
+  echo "[x] ERROR: Unknown action: $ACTION"
+  echo "    Valid actions: add, rm"
+  exit 1
+fi
+
+shift
+
+if [[ "$ACTION" == "rm" && -n "$TYPE" && "$TYPE" != "app" && "$TYPE" != "static" && "$TYPE" != "proxy" ]]; then
+  DOMAIN="$TYPE"
+  TYPE=""
+
+  NGINX_CONF="/etc/nginx/sites-available/$DOMAIN.conf"
+  if [[ ! -f "$NGINX_CONF" ]]; then
+    echo "[x] ERROR: No Nginx configuration found for $DOMAIN"
+    exit 1
+  fi
+
+  if grep -q "proxy_pass" "$NGINX_CONF"; then
+    TYPE="proxy"
+  elif grep -q "fastcgi_pass" "$NGINX_CONF"; then
+    TYPE="app"
+  else
+    TYPE="static"
+  fi
+
+  echo "[i] Auto-detected type: $TYPE"
+  exec bash "$FSS_LIB/rm/$TYPE.sh" -d "$DOMAIN" "$@"
+fi
+
+if [[ -z "$TYPE" ]]; then
+  echo "[x] ERROR: Type is required (app|static|proxy)"
+  exit 1
+fi
+
+if [[ "$TYPE" != "app" && "$TYPE" != "static" && "$TYPE" != "proxy" ]]; then
+  echo "[x] ERROR: Unknown type: $TYPE"
+  echo "    Valid types: app, static, proxy"
+  exit 1
+fi
+
+shift
+
+SCRIPT="$FSS_LIB/$ACTION/$TYPE.sh"
+
+if [[ ! -f "$SCRIPT" ]]; then
+  echo "[x] ERROR: Script not found: $SCRIPT"
+  exit 1
+fi
+
+EXTRA_ARGS=("$@")
+if [[ ${#EXTRA_ARGS[@]} -gt 0 && "${EXTRA_ARGS[0]:0:1}" != "-" ]]; then
+  DOMAIN="${EXTRA_ARGS[0]}"
+  EXTRA_ARGS=("${EXTRA_ARGS[@]:1}")
+  set -- -d "$DOMAIN" "${EXTRA_ARGS[@]}"
+fi
+
+source "$FSS_LIB/env.sh"
+source "$FSS_LIB/validate.sh"
+source "$SCRIPT" "$@"
