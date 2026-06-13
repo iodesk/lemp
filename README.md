@@ -124,6 +124,14 @@ Auto-installed on WordPress sites. Manages Nginx FastCGI cache from WP admin.
 
 Features: purge per-page, purge all, sitemap preloader, auto-purge on post update, HTTP cache headers, OTA updates.
 
+## Filebrowser
+
+Forked from [iodesk/filebrowser](https://github.com/iodesk/filebrowser) with added features:
+
+- Chown   change file/directory owner via UI
+- Compress   compress files and folders on server without downloading first
+- Bulk permission   change permissions for multiple files or folders at once
+
 ## Directory Structure
 
 ```
