@@ -1,6 +1,8 @@
-# FSS — F10 Simple Stack
+# FSS [F10 Simple Stack]
 
 Lightweight LEMP stack installer & site manager for Ubuntu 24.04.
+
+![Traffic Oveview](screenshot/ss-keitaro-paid-traffic.png)
 
 ## Stack
 
