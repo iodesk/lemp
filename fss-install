@@ -11,6 +11,55 @@ SWAPSIZE="1G"
 LOGFILE="/var/log/fss/installer.log"
 CURL_UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 MARIADB_VERSION="11.4"
+NGINX_CHANNEL="stable"
+BADBOT_INSTALL="yes"
+PMA_VERSION="5.2.3"
+SKIP_SWAP="no"
+SKIP_BADBOT="no"
+SKIP_PMA="no"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --nginx)
+      NGINX_CHANNEL="$2"
+      shift 2
+      ;;
+    --php)
+      PHP_VERSION="$2"
+      shift 2
+      ;;
+    --mariadb)
+      MARIADB_VERSION="$2"
+      shift 2
+      ;;
+    --badbot)
+      BADBOT_INSTALL="$2"
+      [[ "$2" == "no" ]] && SKIP_BADBOT="yes"
+      shift 2
+      ;;
+    --swap)
+      if [[ "$2" == "no" ]]; then
+        SKIP_SWAP="yes"
+      else
+        SWAPSIZE="$2"
+      fi
+      shift 2
+      ;;
+    --phpmyadmin)
+      if [[ "$2" == "no" ]]; then
+        SKIP_PMA="yes"
+      else
+        PMA_VERSION="$2"
+      fi
+      shift 2
+      ;;
+    *)
+      echo "Unknown argument: $1"
+      echo "Usage: fss-install [--nginx stable|mainline] [--php VERSION] [--mariadb VERSION] [--badbot yes|no] [--swap SIZE|no] [--phpmyadmin VERSION|no]"
+      exit 1
+      ;;
+  esac
+done
 
 mkdir -p /var/log/fss
 : > "$LOGFILE"
@@ -50,7 +99,7 @@ mycurl() {
 source /etc/os-release
 CODENAME=$VERSION_CODENAME
 OS_VERSION=$VERSION_ID
-SUPPORTED_OS=("24.04")
+SUPPORTED_OS=("24.04" "26.04")
 
 check_root() {
   if [[ "$EUID" -ne 0 ]]; then
@@ -68,7 +117,7 @@ is_supported_os() {
 
 fail_unsupported_os() {
   log "[✗] Unsupported OS version: $OS_VERSION ($CODENAME)"
-  log "Only Ubuntu 24.04 (noble) are supported."
+  log "Only Ubuntu 24.04 and 26.04 are supported."
   exit 1
 }
 
@@ -205,11 +254,18 @@ install_nginx() {
 
   apt-get install -y curl gnupg2 ca-certificates lsb-release ubuntu-keyring >> "$LOGFILE" 2>&1
 
+  local NGINX_REPO_PATH
+  if [[ "$NGINX_CHANNEL" == "mainline" ]]; then
+    NGINX_REPO_PATH="packages/mainline/ubuntu"
+  else
+    NGINX_REPO_PATH="packages/ubuntu"
+  fi
+
   curl -fsSL https://nginx.org/keys/nginx_signing.key \
     | gpg --dearmor \
     | tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
 
-  echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] https://nginx.org/packages/ubuntu $(lsb_release -cs) nginx" \
+  echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] https://nginx.org/$NGINX_REPO_PATH $(lsb_release -cs) nginx" \
     | tee /etc/apt/sources.list.d/nginx.list > /dev/null
 
   cat > /etc/apt/preferences.d/99-nginx <<EOF
@@ -337,7 +393,7 @@ EOF
   log ">>> Securing MariaDB..."
   MYSQL_ROOT_PASSWORD=$(openssl rand -base64 20)
 
-  mysql -u root >> "$LOGFILE" 2>&1 <<EOF
+  mariadb -u root >> "$LOGFILE" 2>&1 <<EOF
 ALTER USER 'root'@'localhost' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD';
 DELETE FROM mysql.user WHERE User='';
 DROP DATABASE IF EXISTS test;
@@ -366,9 +422,8 @@ install_phpmyadmin() {
   fi
 
   TMP_DIR=$(mktemp -d)
-  PMA_VER="5.2.3"
 
-  mycurl "https://files.phpmyadmin.net/phpMyAdmin/${PMA_VER}/phpMyAdmin-${PMA_VER}-all-languages.zip" \
+  mycurl "https://files.phpmyadmin.net/phpMyAdmin/${PMA_VERSION}/phpMyAdmin-${PMA_VERSION}-all-languages.zip" \
     -o "$TMP_DIR/pma.zip"
   unzip -q "$TMP_DIR/pma.zip" -d "$TMP_DIR"
 
@@ -419,16 +474,16 @@ PMAEOF
 
   MYSQL_PW="$(cat "$FSS_SECRETS/.mysql_root_password")"
 
-  mysql -u root -p"$MYSQL_PW" >> "$LOGFILE" 2>&1 <<EOF
+  mariadb -u root -p"$MYSQL_PW" >> "$LOGFILE" 2>&1 <<EOF
 CREATE DATABASE IF NOT EXISTS phpmyadmin CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 EOF
 
-  mysql -u root -p"$MYSQL_PW" phpmyadmin \
+  mariadb -u root -p"$MYSQL_PW" phpmyadmin \
     < /usr/share/phpmyadmin/sql/create_tables.sql >> "$LOGFILE" 2>&1
 
   ADMINPMA_PASS=$(openssl rand -base64 16)
 
-  mysql -u root -p"$MYSQL_PW" >> "$LOGFILE" 2>&1 <<EOF
+  mariadb -u root -p"$MYSQL_PW" >> "$LOGFILE" 2>&1 <<EOF
 CREATE USER IF NOT EXISTS 'adminfss'@'localhost' IDENTIFIED BY '$ADMINPMA_PASS';
 GRANT ALL PRIVILEGES ON *.* TO 'adminfss'@'localhost' WITH GRANT OPTION;
 GRANT ALL PRIVILEGES ON \`phpmyadmin\`.* TO 'adminfss'@'localhost';
@@ -768,6 +823,11 @@ summary_installation() {
   echo -e "  ${C}Date${N}       : $(date '+%Y-%m-%d %H:%M:%S')"
   echo -e "  ${C}Log${N}        : $LOGFILE"
   echo ""
+  echo -e "${B}─── Configuration ──────────────────────────────────────${N}"
+  echo -e "  NGINX Channel  : $NGINX_CHANNEL"
+  echo -e "  PHP Version    : $PHP_VERSION"
+  echo -e "  MariaDB Version: $MARIADB_VERSION"
+  echo ""
   echo -e "${B}─── Services ───────────────────────────────────────────${N}"
 
   if command -v nginx >/dev/null 2>&1; then
@@ -845,17 +905,17 @@ summary_installation() {
 check_root
 deploy_fss_files
 install_dependencies
-add_swap
+[[ "$SKIP_SWAP" == "no" ]] && add_swap
 install_sysctl
 enable_bbr
 install_nginx
 install_php
 install_mariadb
-install_phpmyadmin
+[[ "$SKIP_PMA" == "no" ]] && install_phpmyadmin
 install_fail2ban
 install_iptables
 install_iptables_ipv6
-install_ngxbadbot
+[[ "$SKIP_BADBOT" == "no" ]] && install_ngxbadbot
 install_redis
 install_waf_auto_update
 install_filemanager

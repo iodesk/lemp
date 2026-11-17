@@ -9,6 +9,7 @@ SSL_TYPE=""
 APP=""
 HTTP3="off"
 MODE="multi"
+NOLOGIN="yes"
 FSS_PLUGIN_PATH="$FSS_DATA/wp/fsscache"
 
 while [[ $# -gt 0 ]]; do
@@ -19,6 +20,7 @@ while [[ $# -gt 0 ]]; do
     -app) APP="$2"; shift 2 ;;
     -http3) HTTP3="on"; shift ;;
     --mode) MODE="$2"; shift 2 ;;
+    --nologin) NOLOGIN="$2"; shift 2 ;;
     *) echo "[x] Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -122,7 +124,8 @@ DB_PASS=$(generate_password)
 if [[ "$MODE" == "single" ]]; then
   if [[ "$CREATE_NEW_USER" == true ]]; then
     log "Creating user $USER..."
-    useradd -m -d "$USER_HOME" -s /bin/bash -G nginx "$USER"
+    USER_SHELL=$([[ "$NOLOGIN" == "yes" ]] && echo "/usr/sbin/nologin" || echo "/bin/bash")
+    useradd -m -d "$USER_HOME" -s "$USER_SHELL" -G nginx "$USER"
     echo "$USER:$PASS" | chpasswd
   else
     usermod -aG nginx "$USER" 2>/dev/null || true
@@ -131,7 +134,8 @@ if [[ "$MODE" == "single" ]]; then
 else
   if ! id "$USER" &>/dev/null; then
     log "Creating user $USER..."
-    useradd -m -d "$USER_HOME" -s /bin/bash -G nginx "$USER"
+    USER_SHELL=$([[ "$NOLOGIN" == "yes" ]] && echo "/usr/sbin/nologin" || echo "/bin/bash")
+    useradd -m -d "$USER_HOME" -s "$USER_SHELL" -G nginx "$USER"
     echo "$USER:$PASS" | chpasswd
   else
     usermod -aG nginx "$USER" 2>/dev/null || true
@@ -212,10 +216,10 @@ if [[ "$APP" == "wordpress" ]]; then
   fi
 
   log "Downloading WordPress core..."
-  sudo -u "$USER" -i -- wp --path="$SITE_DIR" core download --quiet
+  sudo -u "$USER" -H -- wp --path="$SITE_DIR" core download --quiet
 
   log "Creating wp-config.php..."
-  sudo -u "$USER" -i -- wp --path="$SITE_DIR" config create \
+  sudo -u "$USER" -H -- wp --path="$SITE_DIR" config create \
     --dbname="$DB_NAME" \
     --dbuser="$DB_USER" \
     --dbpass="$DB_PASS" \
@@ -228,11 +232,11 @@ if [[ "$APP" == "wordpress" ]]; then
   ADMIN_EMAIL="admin@$DOMAIN"
   SITE_TITLE="Welcome to $DOMAIN"
 
-  if sudo -u "$USER" -i -- wp --path="$SITE_DIR" core is-installed; then
+  if sudo -u "$USER" -H -- wp --path="$SITE_DIR" core is-installed; then
     log "[i] WordPress already installed! Skipping wp core install."
   else
     log "Running wp core install..."
-    sudo -u "$USER" -i -- wp --path="$SITE_DIR" core install \
+    sudo -u "$USER" -H -- wp --path="$SITE_DIR" core install \
       --url="https://$DOMAIN" \
       --title="$SITE_TITLE" \
       --admin_user="$ADMIN_USER" \
@@ -242,7 +246,7 @@ if [[ "$APP" == "wordpress" ]]; then
       --quiet
   fi
 
-  sudo -u "$USER" -i -- wp --path="$SITE_DIR" user check-password "$ADMIN_USER" "$ADMIN_PASS" \
+  sudo -u "$USER" -H -- wp --path="$SITE_DIR" user check-password "$ADMIN_USER" "$ADMIN_PASS" \
     && log "[✓] WP-CLI password verified OK" \
     || log "[x] WP-CLI password verification FAILED"
 
@@ -286,7 +290,7 @@ if [[ "$APP" == "wordpress" ]]; then
     fi
 
     log "Installing Redis Object Cache plugin..."
-    sudo -u "$USER" -i -- wp --path="$SITE_DIR" plugin install redis-cache --activate --quiet
+    sudo -u "$USER" -H -- wp --path="$SITE_DIR" plugin install redis-cache --activate --quiet
 
     if ! grep -q "WP_REDIS_" "$SITE_DIR/wp-config.php"; then
 
@@ -326,9 +330,9 @@ EOF
     fi
 
     log "Enabling Redis cache..."
-    sudo -u "$USER" -i -- wp --path="$SITE_DIR" redis enable --quiet
+    sudo -u "$USER" -H -- wp --path="$SITE_DIR" redis enable --quiet
 
-    if sudo -u "$USER" -i -- wp --path="$SITE_DIR" redis status >/dev/null 2>&1; then
+    if sudo -u "$USER" -H -- wp --path="$SITE_DIR" redis status >/dev/null 2>&1; then
       log "[✓] Redis Object Cache enabled for $DOMAIN (mode: $([ "$REDIS_USE_SOCKET" == true ] && echo 'socket' || echo 'TCP'))"
     else
       log "[x] Redis enable failed for $DOMAIN"
@@ -337,19 +341,19 @@ EOF
 
   log ">> Cleaning default WP plugins & themes..."
 
-  sudo -u "$USER" -i -- wp --path="$SITE_DIR" plugin delete akismet --quiet || true
-  sudo -u "$USER" -i -- wp --path="$SITE_DIR" plugin delete hello --quiet || true
+  sudo -u "$USER" -H -- wp --path="$SITE_DIR" plugin delete akismet --quiet || true
+  sudo -u "$USER" -H -- wp --path="$SITE_DIR" plugin delete hello --quiet || true
 
   log ">> Installing essential plugins..."
 
-  sudo -u "$USER" -i -- wp --path="$SITE_DIR" plugin install classic-editor --activate --quiet
-  sudo -u "$USER" -i -- wp --path="$SITE_DIR" plugin install wordpress-seo --activate --quiet
+  sudo -u "$USER" -H -- wp --path="$SITE_DIR" plugin install classic-editor --activate --quiet
+  sudo -u "$USER" -H -- wp --path="$SITE_DIR" plugin install wordpress-seo --activate --quiet
 
   log ">> Removing inactive themes..."
-  INACTIVE_THEMES=$(sudo -u "$USER" -i -- wp --path="$SITE_DIR" theme list --status=inactive --field=name)
+  INACTIVE_THEMES=$(sudo -u "$USER" -H -- wp --path="$SITE_DIR" theme list --status=inactive --field=name)
   if [[ -n "$INACTIVE_THEMES" ]]; then
     for th in $INACTIVE_THEMES; do
-      sudo -u "$USER" -i -- wp --path="$SITE_DIR" theme delete "$th" --quiet || true
+      sudo -u "$USER" -H -- wp --path="$SITE_DIR" theme delete "$th" --quiet || true
     done
     log ">> Deleted inactive themes: $INACTIVE_THEMES"
   else
@@ -364,9 +368,9 @@ EOF
   if [[ ! -f "$PLUGIN_ZIP" ]]; then
     log "[!] FSS Cache Manager zip not found: $PLUGIN_ZIP — skipping"
   else
-    sudo -u "$USER" -i -- wp --path="$SITE_DIR" plugin install "$PLUGIN_ZIP" --activate --quiet
+    sudo -u "$USER" -H -- wp --path="$SITE_DIR" plugin install "$PLUGIN_ZIP" --activate --quiet
 
-    if sudo -u "$USER" -i -- wp --path="$SITE_DIR" plugin is-active fss-cache-manager; then
+    if sudo -u "$USER" -H -- wp --path="$SITE_DIR" plugin is-active fss-cache-manager; then
       log "[✓] FSS Cache Manager installed & activated."
     else
       log "[x] WARNING: Plugin installed but activation failed."

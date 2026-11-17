@@ -7,6 +7,7 @@ DOMAIN=""
 SSL_TYPE="none"
 HTTP3="off"
 MODE="multi"
+NOLOGIN="yes"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -14,6 +15,7 @@ while [[ $# -gt 0 ]]; do
     -ssl) SSL_TYPE="$2"; shift 2 ;;
     -http3) HTTP3="on"; shift ;;
     --mode) MODE="$2"; shift 2 ;;
+    --nologin) NOLOGIN="$2"; shift 2 ;;
     *) echo "[x] Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -89,11 +91,13 @@ fi
 
 if [[ "$MODE" == "single" && "$CREATE_NEW_USER" == true ]]; then
   log "Creating user $USER..."
-  useradd -m -d "$USER_HOME" -s /bin/bash "$USER"
+  USER_SHELL=$([[ "$NOLOGIN" == "yes" ]] && echo "/usr/sbin/nologin" || echo "/bin/bash")
+  useradd -m -d "$USER_HOME" -s "$USER_SHELL" "$USER"
 elif [[ "$MODE" == "multi" ]]; then
   if ! id "$USER" &>/dev/null; then
     log "Creating user $USER..."
-    useradd -m -d "$USER_HOME" -s /bin/bash "$USER"
+    USER_SHELL=$([[ "$NOLOGIN" == "yes" ]] && echo "/usr/sbin/nologin" || echo "/bin/bash")
+    useradd -m -d "$USER_HOME" -s "$USER_SHELL" "$USER"
   else
     log "User exists: $USER"
   fi

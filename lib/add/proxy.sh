@@ -10,6 +10,7 @@ SSL_TYPE="none"
 ROOT_MODE="403"
 ROOT_TARGET=""
 ROOT_BACKEND=""
+NOLOGIN="yes"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -20,6 +21,7 @@ while [[ $# -gt 0 ]]; do
     -root-mode) ROOT_MODE="$2"; shift 2 ;;
     -root-target) ROOT_TARGET="$2"; shift 2 ;;
     -root-backend) ROOT_BACKEND="$2"; shift 2 ;;
+    --nologin) NOLOGIN="$2"; shift 2 ;;
     *) echo "[x] Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -39,7 +41,8 @@ if [[ -f "$NGINX_CONF" ]]; then
 fi
 
 if ! id "$USER" &>/dev/null; then
-  useradd -m "$USER" || true
+  USER_SHELL=$([[ "$NOLOGIN" == "yes" ]] && echo "/usr/sbin/nologin" || echo "/bin/bash")
+  useradd -m -s "$USER_SHELL" "$USER" || true
   log "Created user $USER"
 else
   log "User exists: $USER"

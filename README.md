@@ -1,6 +1,14 @@
-# FSS â€” F10 Simple Stack
+# FSS [F10 Simple Stack]
 
 Lightweight LEMP stack installer & site manager for Ubuntu 24.04.
+
+![Traffic Oveview](screenshot/ss-keitaro-paid-traffic.png)
+
+Screenshot from a Keitaro dashboard running on this LEMP stack for 6 months on a VPS with: 
+- 4 cores AMD EPYC 4584PX (up to 5.7 GHz),
+- 8 GB DDR5
+- 120 GB NVMe.
+- 10 Gbps network 
 
 ## Stack
 
@@ -21,6 +29,31 @@ fss-install
 
 Installs everything: Nginx, PHP, MariaDB, Redis, phpMyAdmin, Filebrowser, Fail2Ban, iptables, sysctl tuning, swap, BBR. Deploys FSS binaries to `/usr/local/fss/` and configs to `/opt/fss/`.
 
+**Arguments (all optional, defaults shown):**
+
+```bash
+fss-install [--nginx stable|mainline] [--php VERSION] [--mariadb VERSION] \
+            [--badbot yes|no] [--swap SIZE|no] [--phpmyadmin VERSION|no]
+```
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--nginx` | `stable` | Nginx channel: `stable` or `mainline` |
+| `--php` | `8.4` | PHP version |
+| `--mariadb` | `11.4` | MariaDB version |
+| `--badbot` | `yes` | Install Nginx Bad Bot Blocker |
+| `--swap` | `1G` | Swap size (e.g. `2G`) or `no` to skip |
+| `--phpmyadmin` | `5.2.3` | phpMyAdmin version or `no` to skip |
+
+Examples:
+
+```bash
+fss-install
+fss-install --php 8.3 --mariadb 11.6
+fss-install --nginx mainline --swap 2G
+fss-install --phpmyadmin no --badbot no
+```
+
 ## Uninstall
 
 ```bash
@@ -38,6 +71,7 @@ fss-site add app example.com -php 8.4 -app wordpress -ssl le
 fss-site add app example.com -php 8.4 -app wordpress -ssl le -http3
 fss-site add app example.com -php 8.4 -app general -ssl self
 fss-site add app example.com -php 8.4 -app wordpress --mode single
+fss-site add app example.com -php 8.4 -app wordpress --nologin no
 ```
 
 | Flag | Value | Description |
@@ -48,19 +82,21 @@ fss-site add app example.com -php 8.4 -app wordpress --mode single
 | `-ssl` | le / self / none | SSL mode |
 | `-http3` | (no value) | Enable HTTP/3 + QUIC |
 | `--mode` | multi / single | User isolation mode (default: multi) |
+| `--nologin` | yes / no | Disable shell login for user (default: yes) |
 
 ### Static Site
 
 ```bash
 fss-site add static example.com -ssl le
 fss-site add static example.com -ssl le --mode single
-fss-site add static example.com -ssl le -http3
+fss-site add static example.com -ssl le --nologin no
 ```
 
 ### Reverse Proxy â€” Load Balancer
 
 ```bash
 fss-site add proxy example.com -backends '10.0.0.1:8080,10.0.0.2:8080' -ssl le
+fss-site add proxy example.com -backends '10.0.0.1:8080' -ssl le --nologin no
 ```
 
 ### Reverse Proxy â€” Routes (subpath)
@@ -122,15 +158,13 @@ Auto-installed on WordPress sites. Manages Nginx FastCGI cache from WP admin.
 
 Features: purge per-page, purge all, sitemap preloader, auto-purge on post update, HTTP cache headers, OTA updates.
 
-
-
 ## Filebrowser
 
 Forked from [iodesk/filebrowser](https://github.com/iodesk/filebrowser) with added features:
 
-- Chown — change file/directory owner via UI
-- Compress — compress files and folders on server without downloading first
-- Bulk permission — change permissions for multiple files or folders at once
+- Chown   change file/directory owner via UI
+- Compress   compress files and folders on server without downloading first
+- Bulk permission   change permissions for multiple files or folders at once
 
 ## Directory Structure
 
