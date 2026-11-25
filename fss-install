@@ -10,7 +10,7 @@ SWAPFILE="/swapfile"
 SWAPSIZE="1G"
 LOGFILE="/var/log/fss/installer.log"
 CURL_UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
-MARIADB_VERSION="11.4"
+MARIADB_VERSION="11.8"
 NGINX_CHANNEL="stable"
 BADBOT_INSTALL="yes"
 PMA_VERSION="5.2.3"
@@ -193,6 +193,7 @@ add_swap() {
 
 install_sysctl() {
   log ">>> [Sysctl] Tuning sysctl..."
+  [ -f /etc/sysctl.conf ] || touch /etc/sysctl.conf
   cp "$FSS_CONF/sysctl/99-tuning.conf" /etc/sysctl.d/99-tuning.conf
   sysctl -p >> "$LOGFILE" 2>&1
   log "[✓] Sysctl tuning applied."
@@ -336,11 +337,14 @@ install_php() {
   log ">>> [PHP] Installing PHP ($PHP_VERSION)..."
   is_supported_os || fail_unsupported_os
 
-  mycurl "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x4F4EA0AAE5267A6C" \
-    | gpg --dearmor -o /etc/apt/trusted.gpg.d/ondrej-php.gpg
+  mycurl https://packages.sury.org/php/apt.gpg \
+    | gpg --dearmor --yes \
+        -o /usr/share/keyrings/debsuryorg-archive-keyring.gpg
 
-  add-apt-repository -y "deb https://ppa.launchpadcontent.net/ondrej/php/ubuntu $CODENAME main" >> "$LOGFILE" 2>&1
-  add-apt-repository -y "deb-src https://ppa.launchpadcontent.net/ondrej/php/ubuntu $CODENAME main" >> "$LOGFILE" 2>&1
+  chmod 644 /usr/share/keyrings/debsuryorg-archive-keyring.gpg
+
+  echo "deb [signed-by=/usr/share/keyrings/debsuryorg-archive-keyring.gpg] https://packages.sury.org/php/ ${CODENAME} main" \
+    > /etc/apt/sources.list.d/php.list
 
   apt-get update >> "$LOGFILE" 2>&1
 

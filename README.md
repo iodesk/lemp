@@ -14,7 +14,7 @@ Screenshot from a Keitaro dashboard running on this LEMP stack for 6 months on a
 
 | Component | Version |
 |-----------|---------|
-| Nginx | 1.28.x (pinned, HTTP/3 ready) |
+| Nginx | 1.30.7 (pinned, HTTP/3 ready) |
 | PHP-FPM | 8.4 |
 | MariaDB | 11.4 |
 | Redis | latest |
